@@ -5,9 +5,11 @@
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
+import os
+import shutil
 import sys
+import subprocess
 import threading
-import webbrowser
 
 
 
@@ -360,7 +362,11 @@ def crear_grafico_puntos_muestreo(df):
         yaxis=dict(
             title="Cantidad de registros",
             gridcolor="#EAECF0",
-            rangemode="tozero"
+            rangemode="tozero",
+            range=[
+                0,
+                float(frecuencias.max()) * 1.1 if not frecuencias.empty else 1
+            ]
         ),
         font=dict(
             family="Arial",
@@ -1053,6 +1059,54 @@ def actualizar_pizarra(inicio, fin, componente, muestreo):
 # INICIO
 # =========================================================
 
+def abrir_en_modo_aplicacion(url):
+    navegadores = [
+        (
+            "Microsoft Edge",
+            "msedge.exe",
+            "Microsoft",
+            "Edge",
+            "Application",
+            "msedge.exe"
+        ),
+        ("Google Chrome", "chrome.exe", "Google", "Chrome", "Application",
+         "chrome.exe"),
+    ]
+
+    ejecutables = []
+    for navegador in navegadores:
+        nombre, comando, *rutas = navegador
+        encontrado = shutil.which(comando)
+        if encontrado:
+            ejecutables.append((nombre, encontrado))
+
+        for variable in ("ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"):
+            directorio = os.environ.get(variable)
+            if directorio:
+                ejecutable = Path(directorio).joinpath(*rutas)
+                if ejecutable.is_file():
+                    ejecutables.append((nombre, str(ejecutable)))
+
+    intentados = set()
+    for nombre, ejecutable in ejecutables:
+        if ejecutable in intentados:
+            continue
+        intentados.add(ejecutable)
+        try:
+            subprocess.Popen(
+                [ejecutable, f"--app={url}", "--no-first-run"],
+                close_fds=True
+            )
+            return
+        except OSError:
+            continue
+
+    raise RuntimeError(
+        "No se pudo abrir Pizarra en modo aplicación. "
+        "Instala Microsoft Edge o Google Chrome y vuelve a intentarlo."
+    )
+
+
 if __name__ == "__main__":
     if getattr(sys, "frozen", False):
         servidor = make_server(
@@ -1067,10 +1121,14 @@ if __name__ == "__main__":
         )
         hilo_servidor.start()
         url = f"http://127.0.0.1:{servidor.server_port}"
-        print(f"Pizarra disponible en {url}. Cierra esta ventana para salir.")
-        webbrowser.open_new_tab(url)
+        print("Abriendo Pizarra en una ventana de aplicación.")
         try:
+            abrir_en_modo_aplicacion(url)
             hilo_servidor.join()
+        except RuntimeError:
+            servidor.shutdown()
+            hilo_servidor.join()
+            raise
         except KeyboardInterrupt:
             servidor.shutdown()
             hilo_servidor.join()
